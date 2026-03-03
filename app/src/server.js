@@ -11,7 +11,9 @@ const { withFileLock } = require('./lib/lock');
 const {
   CONSTANTS,
   getUploadRoot,
-  getStateFilePath
+  getStateFilePath,
+  getStreamingAssetsSegment,
+  shouldUseStreamingAssetsRoot
 } = require('./lib/paths');
 const {
   ensureStateFile,
@@ -48,6 +50,20 @@ function joinUrl(base, endpointPath) {
   return `${normalizedBase}${normalizedPath}`;
 }
 
+function appendPathSegmentIfMissing(base, segment) {
+  const normalizedBase = ensureNoTrailingSlash(base);
+  const normalizedSegment = String(segment || '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+  if (!normalizedSegment) {
+    return normalizedBase;
+  }
+  if (normalizedBase.toLowerCase().endsWith(`/${normalizedSegment.toLowerCase()}`)) {
+    return normalizedBase;
+  }
+  return `${normalizedBase}/${normalizedSegment}`;
+}
+
 function getRequestBaseUrl(request) {
   const proto = splitHeaderFirst(request.headers['x-forwarded-proto']) || 'https';
   const host = splitHeaderFirst(request.headers['x-forwarded-host']) || request.headers.host || 'api.kaukei.com';
@@ -69,12 +85,17 @@ function getCheckResourceVersionUrl(request) {
 }
 
 function getResourceRootPath(request) {
-  if (process.env.CDN_ROOT_PATH) {
-    return process.env.CDN_ROOT_PATH;
-  }
+  const configuredRootPath = process.env.CDN_ROOT_PATH;
   const reqBase = getRequestBaseUrl(request);
   const cdnBase = reqBase.replace('://api.', '://cdn.');
-  return joinUrl(cdnBase, '/hotupdate');
+  const defaultRootPath = joinUrl(cdnBase, '/hotupdate');
+  const resourceRootPath = configuredRootPath || defaultRootPath;
+
+  if (!shouldUseStreamingAssetsRoot()) {
+    return ensureNoTrailingSlash(resourceRootPath);
+  }
+
+  return appendPathSegmentIfMissing(resourceRootPath, getStreamingAssetsSegment());
 }
 
 function parseBasicAuth(authorization) {

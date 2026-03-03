@@ -1,12 +1,24 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { getLegacyHotupdatePrefixRoot } = require('./paths');
+const { getLegacyHotupdatePrefixRoot, getHotupdatePrefixRoot } = require('./paths');
 
 const COS_IO_TIMEOUT_MS = Number(process.env.COS_IO_TIMEOUT_MS || 120000);
 const COS_RETRY_COUNT = Number(process.env.COS_RETRY_COUNT || 3);
 
 function normalizeRelPath(relPath) {
   return relPath.split(path.sep).join('/');
+}
+
+function mergeVersionLists(...lists) {
+  const merged = new Set();
+  for (const list of lists) {
+    for (const version of list || []) {
+      if (/^\d+$/.test(String(version))) {
+        merged.add(String(version));
+      }
+    }
+  }
+  return [...merged].sort((a, b) => Number(b) - Number(a));
 }
 
 function sleep(ms) {
@@ -67,15 +79,15 @@ async function listFiles(rootDir) {
   return out;
 }
 
-async function syncToCosMock({ platform, version, sourceDir }) {
+async function syncToCosMock({ version, sourceDir }) {
   const mockRoot = process.env.PULZZ_COS_MOCK_ROOT;
   if (!mockRoot) {
     return;
   }
-  const legacyRoot = path.join(mockRoot, getLegacyHotupdatePrefixRoot(), String(version));
-  await fs.rm(legacyRoot, { recursive: true, force: true });
-  await fs.mkdir(path.dirname(legacyRoot), { recursive: true });
-  await fs.cp(sourceDir, legacyRoot, { recursive: true, force: true });
+  const prefixRoot = path.join(mockRoot, getHotupdatePrefixRoot(), String(version));
+  await fs.rm(prefixRoot, { recursive: true, force: true });
+  await fs.mkdir(path.dirname(prefixRoot), { recursive: true });
+  await fs.cp(sourceDir, prefixRoot, { recursive: true, force: true });
 }
 
 async function listVersionsByFsRoot(rootDir) {
@@ -106,14 +118,16 @@ function createCosClient() {
   return { cos, bucket, region };
 }
 
-async function listVersionsFromCos(platform) {
+async function listVersionsFromCos() {
   const { cos, bucket, region } = createCosClient();
+  const activePrefix = `${getHotupdatePrefixRoot()}/`;
   const legacyPrefix = `${getLegacyHotupdatePrefixRoot()}/`;
   const discovered = new Set();
 
   async function scan(prefix) {
     let marker = '';
-    while (true) {
+    let shouldContinue = true;
+    while (shouldContinue) {
       const page = await withRetry(
         () =>
           new Promise((resolve, reject) => {
@@ -138,42 +152,52 @@ async function listVersionsFromCos(platform) {
         }
       }
       const isTruncated = String(page && page.IsTruncated) === 'true';
-      if (!isTruncated || !keys.length) {
-        break;
+      if (isTruncated && keys.length) {
+        marker = keys[keys.length - 1];
+      } else {
+        shouldContinue = false;
       }
-      marker = keys[keys.length - 1];
     }
   }
 
-  await scan(legacyPrefix);
+  await scan(activePrefix);
+  if (legacyPrefix !== activePrefix) {
+    await scan(legacyPrefix);
+  }
   return [...discovered].sort((a, b) => Number(b) - Number(a));
 }
 
-async function listAvailableVersions(platform) {
+async function listAvailableVersions() {
   const driver = (process.env.STORAGE_DRIVER || 'local').toLowerCase();
   if (driver === 'cos') {
     if (process.env.PULZZ_COS_MOCK_ROOT) {
       const mockRoot = process.env.PULZZ_COS_MOCK_ROOT;
-      const legacy = await listVersionsByFsRoot(path.join(mockRoot, getLegacyHotupdatePrefixRoot()));
-      return legacy;
+      const [active, legacy] = await Promise.all([
+        listVersionsByFsRoot(path.join(mockRoot, getHotupdatePrefixRoot())),
+        listVersionsByFsRoot(path.join(mockRoot, getLegacyHotupdatePrefixRoot()))
+      ]);
+      return mergeVersionLists(active, legacy);
     }
-    return listVersionsFromCos(platform);
+    return listVersionsFromCos();
   }
-  const localRoot = process.env.PULZZ_CDN_ROOT
-    ? path.join(process.env.PULZZ_CDN_ROOT, getLegacyHotupdatePrefixRoot())
-    : path.join('/opt/pulzz-hotupdate', 'cdn', getLegacyHotupdatePrefixRoot());
-  return listVersionsByFsRoot(localRoot);
+  const localRootBase = process.env.PULZZ_CDN_ROOT ? process.env.PULZZ_CDN_ROOT : path.join('/opt/pulzz-hotupdate', 'cdn');
+  const [active, legacy] = await Promise.all([
+    listVersionsByFsRoot(path.join(localRootBase, getHotupdatePrefixRoot())),
+    listVersionsByFsRoot(path.join(localRootBase, getLegacyHotupdatePrefixRoot()))
+  ]);
+  return mergeVersionLists(active, legacy);
 }
 
-async function syncToCosReal({ platform, version, sourceDir }) {
+async function syncToCosReal({ version, sourceDir }) {
   const { cos, bucket, region } = createCosClient();
-  const legacyPrefixRoot = getLegacyHotupdatePrefixRoot();
-  const versionPrefixes = [`${legacyPrefixRoot}/${version}/`];
+  const prefixRoot = getHotupdatePrefixRoot();
+  const versionPrefixes = [`${prefixRoot}/${version}/`];
 
   async function listAllKeysByPrefix(prefix) {
     const all = [];
     let marker = '';
-    while (true) {
+    let shouldContinue = true;
+    while (shouldContinue) {
       const page = await withRetry(
         () =>
           new Promise((resolve, reject) => {
@@ -192,10 +216,11 @@ async function syncToCosReal({ platform, version, sourceDir }) {
       const keys = ((page && page.Contents) || []).map((item) => item.Key).filter(Boolean);
       all.push(...keys);
       const isTruncated = String(page && page.IsTruncated) === 'true';
-      if (!isTruncated || !keys.length) {
-        break;
+      if (isTruncated && keys.length) {
+        marker = keys[keys.length - 1];
+      } else {
+        shouldContinue = false;
       }
-      marker = keys[keys.length - 1];
     }
     return all;
   }

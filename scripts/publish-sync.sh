@@ -9,7 +9,7 @@ fi
 VERSION="$1"
 ROOT=${ROOT:-/opt/pulzz-hotupdate}
 SRC="$ROOT/cdn/pulzz-gameres/wxmini/$VERSION"
-DST="$ROOT/cdn/hotupdate/com.smartdog.bbqgame/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/$VERSION"
+DST="$ROOT/cdn/hotupdate/StreamingAssets/com.smartdog.bbqgame/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/$VERSION"
 
 if [ ! -d "$SRC" ]; then
   echo "source not found: $SRC"

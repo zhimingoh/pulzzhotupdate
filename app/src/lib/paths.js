@@ -12,6 +12,23 @@ const CONSTANTS = {
   appVersion: '1.0.0'
 };
 
+function parseBoolEnv(value, defaultValue) {
+  if (value === undefined || value === null || value === '') {
+    return defaultValue;
+  }
+  return !['0', 'false', 'no', 'off'].includes(String(value).trim().toLowerCase());
+}
+
+function getStreamingAssetsSegment() {
+  return String(process.env.CDN_STREAMING_SEGMENT || 'StreamingAssets')
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+}
+
+function shouldUseStreamingAssetsRoot() {
+  return parseBoolEnv(process.env.CDN_APPEND_STREAMING_ASSETS, true);
+}
+
 function getAssetsPrefixRoot() {
   return (process.env.COS_PREFIX_ROOT || 'pulzz-gameres').toLowerCase();
 }
@@ -27,24 +44,34 @@ function getLegacyHotupdatePrefixRoot() {
   );
 }
 
-function getStateFilePath() {
-  return process.env.PULZZ_STATE_PATH || path.join(ROOT, 'data', 'state.json');
-}
-
-function getUploadRoot(platformKey = 'wxmini') {
-  return getPublishBasePath();
-}
-
-function getPublishBasePath() {
-  return path.join(
-    CDN_ROOT,
-    'hotupdate',
+function getHotupdatePrefixRoot() {
+  const baseParts = ['hotupdate'];
+  if (shouldUseStreamingAssetsRoot()) {
+    const streamingSegment = getStreamingAssetsSegment();
+    if (streamingSegment) {
+      baseParts.push(streamingSegment);
+    }
+  }
+  return path.posix.join(
+    ...baseParts,
     CONSTANTS.packageName,
     CONSTANTS.platform,
     CONSTANTS.appVersion,
     CONSTANTS.channel,
     CONSTANTS.assetPackageName
   );
+}
+
+function getStateFilePath() {
+  return process.env.PULZZ_STATE_PATH || path.join(ROOT, 'data', 'state.json');
+}
+
+function getUploadRoot() {
+  return getPublishBasePath();
+}
+
+function getPublishBasePath() {
+  return path.join(CDN_ROOT, getHotupdatePrefixRoot());
 }
 
 function getPublishTarget(version) {
@@ -56,8 +83,11 @@ module.exports = {
   APP_ROOT,
   CDN_ROOT,
   getAssetsPrefixRoot,
+  getHotupdatePrefixRoot,
   getLegacyHotupdatePrefixRoot,
+  getStreamingAssetsSegment,
   CONSTANTS,
+  shouldUseStreamingAssetsRoot,
   getStateFilePath,
   getUploadRoot,
   getPublishBasePath,

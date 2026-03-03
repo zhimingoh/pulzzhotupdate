@@ -114,7 +114,13 @@ Use Nginx/Caddy to expose service externally and keep app bound to localhost.
 ## Runtime Paths (default)
 - State file: `/opt/pulzz-hotupdate/app/config/state.json`
 - Upload path: `/opt/pulzz-hotupdate/cdn/pulzz-gameres/wxmini/{version}`
-- Publish target: `/opt/pulzz-hotupdate/cdn/hotupdate/com.smartdog.bbqgame/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/{version}`
+- Publish target: `/opt/pulzz-hotupdate/cdn/hotupdate/StreamingAssets/com.smartdog.bbqgame/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/{version}`
+- API `RootPath` default: `https://cdn.<domain>/hotupdate/StreamingAssets`
+
+### CDN RootPath config
+- `CDN_ROOT_PATH`: custom base URL for `GameAssetPackageVersion.GetVersion -> RootPath`
+- `CDN_APPEND_STREAMING_ASSETS`: defaults to `true`; appends `/StreamingAssets` to `CDN_ROOT_PATH` (or default root)
+- `CDN_STREAMING_SEGMENT`: custom segment instead of `StreamingAssets`
 
 ## Deploy Script
 ```bash
