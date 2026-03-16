@@ -5,7 +5,7 @@ const APP_ROOT = process.env.PULZZ_APP_ROOT || path.join(ROOT, 'app');
 const CDN_ROOT = process.env.PULZZ_CDN_ROOT || path.join(ROOT, 'cdn');
 
 const CONSTANTS = {
-  packageName: 'com.smartdog.bbqgame',
+  packageName: 'com.Kaukei.Game',
   platform: 'WebGLWxMiniGame',
   channel: 'WxMiniGame',
   assetPackageName: 'DefaultPackage',

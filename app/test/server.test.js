@@ -95,6 +95,7 @@ test('client api returns fixed app version', async () => {
     assert.equal(json.Code, 0);
     const data = JSON.parse(json.Data);
     assert.equal(data.AppVersion, '1.0.0');
+    assert.equal(data.PackageName, 'com.Kaukei.Game');
   } finally {
     await ctx.cleanup();
   }
@@ -132,6 +133,7 @@ test('asset package version api returns version and root path', async () => {
     assert.equal(json.Code, 0);
     const data = JSON.parse(json.Data);
     assert.equal(data.Version, '0');
+    assert.equal(data.PackageName, 'com.Kaukei.Game');
     assert.equal(data.RootPath, 'https://cdn.kaukei.com/hotupdate/StreamingAssets');
     assert.equal(data.AssetPackageName, 'DefaultPackage');
   } finally {
@@ -200,7 +202,7 @@ test('register version succeeds when version exists in storage', async () => {
   try {
     const existingVersionDir = path.join(
       ctx.tempRoot,
-      'cdn/hotupdate/com.smartdog.bbqgame/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/112'
+      'cdn/hotupdate/com.Kaukei.Game/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/112'
     );
     await fs.mkdir(existingVersionDir, { recursive: true });
     await fs.writeFile(path.join(existingVersionDir, 'manifest.json'), '{}');
@@ -302,7 +304,7 @@ test('upload then publish updates current version using streaming-assets layout'
 
     const publishedPath = path.join(
       ctx.tempRoot,
-      'cdn/hotupdate/StreamingAssets/com.smartdog.bbqgame/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/100/config.json'
+      'cdn/hotupdate/StreamingAssets/com.Kaukei.Game/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/100/config.json'
     );
     assert.equal(await fs.readFile(publishedPath, 'utf8'), '{"k":1}');
   } finally {
@@ -336,7 +338,7 @@ test('upload with cos driver syncs files to cos mock path', async () => {
     const uploadedCurrent = await fs.readFile(
       path.join(
         os.tmpdir(),
-        'pulzz-cos-mock/hotupdate/StreamingAssets/com.smartdog.bbqgame/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/101/config.json'
+        'pulzz-cos-mock/hotupdate/StreamingAssets/com.Kaukei.Game/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/101/config.json'
       ),
       'utf8'
     );
@@ -375,11 +377,11 @@ test('upload zip generated from directory does not create nested version folder'
 
     const expected = path.join(
       ctx.tempRoot,
-      'cdn/hotupdate/StreamingAssets/com.smartdog.bbqgame/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/100/config.json'
+      'cdn/hotupdate/StreamingAssets/com.Kaukei.Game/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/100/config.json'
     );
     const unexpected = path.join(
       ctx.tempRoot,
-      'cdn/hotupdate/StreamingAssets/com.smartdog.bbqgame/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/100/100/config.json'
+      'cdn/hotupdate/StreamingAssets/com.Kaukei.Game/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/100/100/config.json'
     );
     assert.equal(await fs.readFile(expected, 'utf8'), '{"k":3}');
     assert.equal(fsSync.existsSync(unexpected), false);
