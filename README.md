@@ -2,6 +2,17 @@
 
 Thin hot-update protocol adapter for wxmini, built with **Node.js 20 + Fastify**.
 
+## Recommended Deployment
+If you just want the new manifest flow online, do this:
+
+1. Deploy the service and keep it bound to `127.0.0.1:20808`
+2. Set `HOTUPDATE_MANIFEST_URL` to your CDN manifest, for example `https://cdn.your-domain.com/hotupdate/latest.json`
+3. Upload version files to `hotupdate/StreamingAssets/com.Kaukei.Game/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/<version>/`
+4. Upload `hotupdate/latest.json`
+5. Reload PM2
+
+That is the normal release flow. You do not need register/publish for routine releases.
+
 ## Features
 - Keeps the Unity client protocol unchanged
 - Serves startup/version endpoints from a single `latest.json` manifest
@@ -119,11 +130,23 @@ curl -s -X POST http://127.0.0.1:20808/admin/switch \
 ### 2) Clone and install
 ```bash
 git clone <YOUR_REPO_URL>
-cd pulzz-v1/app
+cd pulzzhotupdate/app
 npm ci --omit=dev || npm install --omit=dev
 ```
 
 ### 3) Start service
+Edit `app/ecosystem.config.js` first and replace:
+
+```js
+HOTUPDATE_MANIFEST_URL: "https://cdn.example.com/hotupdate/latest.json"
+```
+
+with your real CDN URL, for example:
+
+```js
+HOTUPDATE_MANIFEST_URL: "https://cdn.kaukei.com/hotupdate/latest.json"
+```
+
 ```bash
 # Option A: direct
 npm start
@@ -134,6 +157,18 @@ pm2 start ecosystem.config.js
 pm2 save
 pm2 startup
 ```
+
+### 3.1) Verify the service is reading the manifest
+```bash
+curl -s -X POST http://127.0.0.1:20808/api/GameAssetPackageVersion/GetVersion \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+You should see:
+- `Code: 0`
+- `Version` matching `latest.json`
+- `RootPath` matching `latest.json`
 
 ### Admin Auth (Basic Auth)
 - Admin authentication is always enabled for:
@@ -151,6 +186,26 @@ Use Nginx/Caddy to expose service externally and keep app bound to localhost.
 - Upload path: `/opt/pulzz-hotupdate/cdn/pulzz-gameres/wxmini/{version}`
 - Publish target: `/opt/pulzz-hotupdate/cdn/hotupdate/StreamingAssets/com.Kaukei.Game/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/{version}`
 - API `RootPath`: read from `latest.json`
+
+### Manifest source priority
+The service reads the manifest in this order:
+1. `HOTUPDATE_MANIFEST_PATH`
+2. `HOTUPDATE_MANIFEST_URL`
+3. local file `app/config/latest.json`
+
+For production, the recommended mode is `HOTUPDATE_MANIFEST_URL`.
+
+## Release Checklist
+1. Build and upload version files to COS/CDN
+2. Confirm the version directory exists remotely
+3. Update `hotupdate/latest.json`
+4. Upload `hotupdate/latest.json`
+5. Call `GameAssetPackageVersion/GetVersion` and confirm `Version` changed
+
+## Rollback Checklist
+1. Change only `hotupdate/latest.json` back to the previous version
+2. Upload the manifest again
+3. Call `GameAssetPackageVersion/GetVersion` and confirm it returned the older version
 
 ## Deploy Script
 ```bash
