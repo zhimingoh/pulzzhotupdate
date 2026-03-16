@@ -35,11 +35,23 @@ cat > "${BIN_DIR}/curl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'curl %s\n' "$*" >> "${LOG_FILE:?}"
+ATTEMPT_FILE="${ATTEMPT_FILE:?}"
+attempt=0
+if [[ -f "${ATTEMPT_FILE}" ]]; then
+  attempt="$(cat "${ATTEMPT_FILE}")"
+fi
+attempt="$((attempt + 1))"
+printf '%s' "${attempt}" > "${ATTEMPT_FILE}"
+if [[ "${attempt}" -le 2 ]]; then
+  echo "curl: (7) Failed to connect to 127.0.0.1 port 20808" >&2
+  exit 7
+fi
 printf '{"Code":0,"Message":"ok","Data":"{}"}'
 EOF
 chmod +x "${BIN_DIR}/curl"
 
 export LOG_FILE="${TMP_DIR}/commands.log"
+export ATTEMPT_FILE="${TMP_DIR}/curl-attempts"
 export PATH="${BIN_DIR}:${PATH}"
 export DEPLOY_ROOT
 export ENV_FILE
@@ -49,3 +61,4 @@ bash "${SCRIPT_PATH}"
 test -f "${DEPLOY_ROOT}/app/src/server.js"
 grep -q 'pm2 startOrReload ecosystem.config.js --update-env HOTUPDATE_MANIFEST_URL=https://cdn.kaukei.icu/hotupdate/latest.json' "${LOG_FILE}"
 grep -q 'curl -sSf http://127.0.0.1:20808/api/GameAssetPackageVersion/GetVersion' "${LOG_FILE}"
+test "$(cat "${ATTEMPT_FILE}")" -ge 3
