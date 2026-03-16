@@ -3,21 +3,38 @@
 Thin hot-update protocol adapter for wxmini, built with **Node.js 20 + Fastify**.
 
 ## Recommended Deployment
-If you just want the new manifest flow online, do this:
+Use the repo-native deployment script. Do not rely on a one-off command list outside the repository.
 
-1. Deploy the service and keep it bound to `127.0.0.1:20808`
-2. Set `HOTUPDATE_MANIFEST_URL` to your CDN manifest, for example `https://cdn.your-domain.com/hotupdate/latest.json`
-3. Upload version files to `hotupdate/StreamingAssets/com.Kaukei.Game/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/<version>/`
-4. Upload `hotupdate/latest.json`
-5. Reload PM2
+### First deployment
+```bash
+git clone https://github.com/zhimingoh/pulzzhotupdate.git
+cd pulzzhotupdate
+cp .env.production.example .env.production
+$EDITOR .env.production
+./scripts/deploy-production.sh
+```
 
-That is the normal release flow. You do not need register/publish for routine releases.
+### Subsequent updates
+```bash
+git pull --ff-only
+./scripts/deploy-production.sh
+```
+
+That is the normal backend deployment flow. You do not need register/publish for routine releases.
 
 ## Features
 - Keeps the Unity client protocol unchanged
 - Serves startup/version endpoints from a single `latest.json` manifest
 - Optional admin pages and legacy upload/register/publish routes
 - No database dependency
+
+## Domain Model
+- API domain: the current Unity client boots from `https://api.kaukei.icu`
+- CDN domain: hot-update files and `latest.json` can live on a separate static domain such as `https://cdn.kaukei.icu`
+- Recommended manifest URL: `https://cdn.kaukei.icu/hotupdate/latest.json`
+- Recommended resource root: `https://cdn.kaukei.icu/hotupdate/StreamingAssets`
+
+The backend no longer needs to infer the CDN from the API hostname. It simply returns the URLs defined by the manifest.
 
 ## Tech Stack
 - Node.js 20
@@ -36,7 +53,9 @@ That is the normal release flow. You do not need register/publish for routine re
 - `app/config/latest.json` - default release manifest path
 - `app/config/state.json` - runtime state file (generated/updated at runtime)
 - `app/ecosystem.config.js` - PM2 config
+- `.env.production.example` - production environment template
 - `scripts/deploy.sh` - deploy helper
+- `scripts/deploy-production.sh` - recommended production deploy entrypoint
 - `scripts/publish-sync.sh` - publish sync helper
 
 ## Local Development
@@ -129,34 +148,31 @@ curl -s -X POST http://127.0.0.1:20808/admin/switch \
 
 ### 2) Clone and install
 ```bash
-git clone <YOUR_REPO_URL>
-cd pulzzhotupdate/app
-npm ci --omit=dev || npm install --omit=dev
+git clone https://github.com/zhimingoh/pulzzhotupdate.git
+cd pulzzhotupdate
+cp .env.production.example .env.production
 ```
 
 ### 3) Start service
-Edit `app/ecosystem.config.js` first and replace:
-
-```js
-HOTUPDATE_MANIFEST_URL: "https://cdn.example.com/hotupdate/latest.json"
-```
-
-with your real CDN URL, for example:
-
-```js
-HOTUPDATE_MANIFEST_URL: "https://cdn.kaukei.com/hotupdate/latest.json"
-```
+Edit `.env.production` and set at minimum:
 
 ```bash
-# Option A: direct
-npm start
-
-# Option B: PM2 (recommended)
-npm install -g pm2
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup
+HOTUPDATE_MANIFEST_URL=https://cdn.kaukei.icu/hotupdate/latest.json
+PUBLIC_API_HOST=api.kaukei.icu
+DEPLOY_ROOT=/opt/pulzz-hotupdate
 ```
+
+Then run:
+
+```bash
+./scripts/deploy-production.sh
+```
+
+The script will:
+- sync `app/` into the deploy root
+- install production dependencies
+- reload PM2 with `--update-env`
+- run local health checks against the configured API host
 
 ### 3.1) Verify the service is reading the manifest
 ```bash
@@ -195,6 +211,15 @@ The service reads the manifest in this order:
 
 For production, the recommended mode is `HOTUPDATE_MANIFEST_URL`.
 
+### Repo-native deployment inputs
+`scripts/deploy-production.sh` reads these values from `.env.production`:
+- `HOTUPDATE_MANIFEST_URL`
+- `PUBLIC_API_HOST`
+- `DEPLOY_ROOT`
+- `HOST`
+- `PORT`
+- `PULZZ_STATE_PATH`
+
 ## Release Checklist
 1. Build and upload version files to COS/CDN
 2. Confirm the version directory exists remotely
@@ -207,11 +232,13 @@ For production, the recommended mode is `HOTUPDATE_MANIFEST_URL`.
 2. Upload the manifest again
 3. Call `GameAssetPackageVersion/GetVersion` and confirm it returned the older version
 
-## Deploy Script
+## Legacy Deploy Script
 ```bash
 ./scripts/deploy.sh
 ```
 Default deploy root: `/opt/pulzz-hotupdate`
+
+For new deployments, use `./scripts/deploy-production.sh` instead.
 
 ## Response Format
 All endpoints use `HttpJsonResult`:

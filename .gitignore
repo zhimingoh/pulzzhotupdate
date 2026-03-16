@@ -15,6 +15,7 @@ logs/
 # Env
 .env
 .env.*
+!.env.production.example
 
 # PM2
 .pids/
