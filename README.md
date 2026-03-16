@@ -1,12 +1,12 @@
 # Pulzz WxMini Hot-Update Platform V1
 
-Production-ready hot-update backend for wxmini, built with **Node.js 20 + Fastify**.
+Thin hot-update protocol adapter for wxmini, built with **Node.js 20 + Fastify**.
 
 ## Features
-- Hot-update version management (upload / publish / switch)
-- Admin web UI
-- JSON file state (no DB dependency)
-- Serialized publish/switch with lock to avoid race conditions
+- Keeps the Unity client protocol unchanged
+- Serves startup/version endpoints from a single `latest.json` manifest
+- Optional admin pages and legacy upload/register/publish routes
+- No database dependency
 
 ## Tech Stack
 - Node.js 20
@@ -17,10 +17,12 @@ Production-ready hot-update backend for wxmini, built with **Node.js 20 + Fastif
 ## Project Structure
 - `app/src/server.js` - HTTP server and routes
 - `app/src/lib/response.js` - unified response shape
+- `app/src/lib/manifest.js` - `latest.json` loader and validator
 - `app/src/lib/state.js` - state read/write
 - `app/src/lib/lock.js` - file lock for critical operations
 - `app/src/lib/paths.js` - path helpers
 - `app/public/admin-ui/index.html` - admin UI
+- `app/config/latest.json` - default release manifest path
 - `app/config/state.json` - runtime state file (generated/updated at runtime)
 - `app/ecosystem.config.js` - PM2 config
 - `scripts/deploy.sh` - deploy helper
@@ -34,6 +36,36 @@ npm start
 ```
 
 Default listen: `127.0.0.1:20808`
+
+## Manifest-Driven Release Flow
+The client-facing API reads one manifest file and treats it as the release source of truth.
+
+Default manifest path:
+- `app/config/latest.json`
+
+Override with:
+- `HOTUPDATE_MANIFEST_PATH`
+- `HOTUPDATE_MANIFEST_URL`
+
+Example manifest:
+```json
+{
+  "version": "151",
+  "appVersion": "1.0.0",
+  "packageName": "com.Kaukei.Game",
+  "platform": "WebGLWxMiniGame",
+  "channel": "WxMiniGame",
+  "assetPackageName": "DefaultPackage",
+  "rootPath": "https://cdn.example.com/hotupdate/StreamingAssets"
+}
+```
+
+Recommended release steps:
+1. Upload hot-update files to COS/CDN under the target version directory
+2. Update `latest.json` to the version you want live
+3. Upload `latest.json`
+
+Rollback is the same operation: change only `latest.json` back to an older version and upload it.
 
 ## API Smoke Test
 ```bash
@@ -53,7 +85,9 @@ curl -s -X POST http://127.0.0.1:20808/api/GameAssetPackageVersion/GetVersion \
   -d '{}'
 ```
 
-## Admin Operations
+## Legacy Admin Operations
+These routes still exist for compatibility, but they are no longer the primary release switch in manifest-driven mode.
+
 ```bash
 # Upload (filename must be numeric, e.g. 100.zip)
 curl -s -X POST http://127.0.0.1:20808/admin/upload \
@@ -63,12 +97,12 @@ curl -s -X POST http://127.0.0.1:20808/admin/upload \
 # List versions
 curl -s 'http://127.0.0.1:20808/admin/versions?platform=wxmini'
 
-# Publish
+# Publish (legacy state flow)
 curl -s -X POST http://127.0.0.1:20808/admin/publish \
   -H 'Content-Type: application/json' \
   -d '{"platform":"wxmini","version":"100"}'
 
-# Switch active version
+# Switch active version (legacy state flow)
 curl -s -X POST http://127.0.0.1:20808/admin/switch \
   -H 'Content-Type: application/json' \
   -d '{"platform":"wxmini","version":"100"}'
@@ -112,15 +146,11 @@ pm2 startup
 Use Nginx/Caddy to expose service externally and keep app bound to localhost.
 
 ## Runtime Paths (default)
+- Release manifest: `/opt/pulzz-hotupdate/app/config/latest.json`
 - State file: `/opt/pulzz-hotupdate/app/config/state.json`
 - Upload path: `/opt/pulzz-hotupdate/cdn/pulzz-gameres/wxmini/{version}`
 - Publish target: `/opt/pulzz-hotupdate/cdn/hotupdate/StreamingAssets/com.Kaukei.Game/WebGLWxMiniGame/1.0.0/WxMiniGame/DefaultPackage/{version}`
-- API `RootPath` default: `https://cdn.<domain>/hotupdate/StreamingAssets`
-
-### CDN RootPath config
-- `CDN_ROOT_PATH`: custom base URL for `GameAssetPackageVersion.GetVersion -> RootPath`
-- `CDN_APPEND_STREAMING_ASSETS`: defaults to `true`; appends `/StreamingAssets` to `CDN_ROOT_PATH` (or default root)
-- `CDN_STREAMING_SEGMENT`: custom segment instead of `StreamingAssets`
+- API `RootPath`: read from `latest.json`
 
 ## Deploy Script
 ```bash

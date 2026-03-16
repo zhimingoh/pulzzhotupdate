@@ -8,6 +8,7 @@ const fastifyStatic = require('@fastify/static');
 const AdmZip = require('adm-zip');
 const { success, failure } = require('./lib/response');
 const { withFileLock } = require('./lib/lock');
+const { loadManifest } = require('./lib/manifest');
 const {
   CONSTANTS,
   getUploadRoot,
@@ -295,6 +296,7 @@ async function createServer() {
   });
 
   app.post('/api/GameGlobalInfo/GetInfo', async (request) => {
+    await loadManifest();
     return success({
       CheckAppVersionUrl: getCheckAppVersionUrl(request),
       CheckResourceVersionUrl: getCheckResourceVersionUrl(request),
@@ -304,33 +306,33 @@ async function createServer() {
   });
 
   app.post('/api/GameAppVersion/GetVersion', async () => {
+    const manifest = await loadManifest();
     return success({
       IsForce: false,
       AppDownloadUrl: '',
       IsUpgrade: false,
       UpdateAnnouncement: '',
       UpdateTitle: '',
-      PackageName: CONSTANTS.packageName,
-      Platform: CONSTANTS.platform,
-      Channel: CONSTANTS.channel,
-      AppVersion: CONSTANTS.appVersion,
-      CurrentVersion: '0'
+      PackageName: manifest.packageName,
+      Platform: manifest.platform,
+      Channel: manifest.channel,
+      AppVersion: manifest.appVersion,
+      CurrentVersion: manifest.version
     });
   });
 
-  app.post('/api/GameAssetPackageVersion/GetVersion', async (request) => {
-    const state = await readState();
-    const currentVersion = state.currentVersion || '0';
+  app.post('/api/GameAssetPackageVersion/GetVersion', async () => {
+    const manifest = await loadManifest();
     return success({
       Language: '',
-      Version: currentVersion,
-      PackageName: CONSTANTS.packageName,
-      Platform: CONSTANTS.platform,
-      Channel: CONSTANTS.channel,
-      AssetPackageName: CONSTANTS.assetPackageName,
-      RootPath: getResourceRootPath(request),
-      AppVersion: CONSTANTS.appVersion,
-      CurrentVersion: currentVersion
+      Version: manifest.version,
+      PackageName: manifest.packageName,
+      Platform: manifest.platform,
+      Channel: manifest.channel,
+      AssetPackageName: manifest.assetPackageName,
+      RootPath: manifest.rootPath,
+      AppVersion: manifest.appVersion,
+      CurrentVersion: manifest.version
     });
   });
 
@@ -424,10 +426,12 @@ async function createServer() {
       return reply.code(400).send(failure(ERROR_CODES.INVALID_PLATFORM, 'invalid_platform', {}));
     }
 
+    const manifest = await loadManifest();
     const state = await readState();
     const discovered = await listAvailableVersions(platform);
+    const versionsToShow = [...new Set([...discovered, manifest.version])].sort((a, b) => Number(b) - Number(a));
     const stateMap = new Map((state.versions || []).map((v) => [v.version, v]));
-    const versions = discovered.map((version) => {
+    const versions = versionsToShow.map((version) => {
       const item = stateMap.get(version) || {};
       return {
         version,
@@ -437,7 +441,7 @@ async function createServer() {
     });
     return success({
       platform,
-      currentVersion: state.currentVersion,
+      currentVersion: manifest.version,
       versions,
       history: state.history
     });

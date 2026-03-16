@@ -76,6 +76,12 @@
         display: flex;
         gap: 8px;
       }
+      .notice {
+        padding: 14px 16px;
+        border-radius: 10px;
+        background: #eef6ff;
+        color: #1f3a5f;
+      }
       @media (max-width: 640px) {
         .actions {
           flex-direction: column;
@@ -94,12 +100,10 @@
       </div>
 
       <div class="card">
-        <h2>Register Uploaded Version</h2>
-        <form id="registerForm" class="row">
-          <input type="text" id="registerVersion" placeholder="e.g. 112" pattern="[0-9]+" required />
-          <button type="submit">Register</button>
-        </form>
-        <p style="margin-bottom: 0; color: var(--muted)">Upload files to COS first, then register the version here.</p>
+        <h2>Manifest-Driven Release</h2>
+        <div class="notice">
+          The live hot-update version now comes from <code>latest.json</code>. Upload version files first, then upload the manifest that points to the version you want live.
+        </div>
       </div>
 
       <div class="card">
@@ -114,8 +118,7 @@
             <tr>
               <th>Version</th>
               <th>Uploaded At</th>
-              <th>Published At</th>
-              <th>Actions</th>
+              <th>Legacy Publish At</th>
             </tr>
           </thead>
           <tbody id="versionsBody"></tbody>
@@ -133,15 +136,6 @@
         statusEl.textContent = text;
       }
 
-      async function postJson(url, payload) {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        return res.json();
-      }
-
       async function refreshVersions() {
         const res = await fetch(`/admin/versions?platform=${PLATFORM}`);
         const body = await res.json();
@@ -156,42 +150,12 @@
             <td>${item.version}</td>
             <td>${item.uploadedAt || '-'}</td>
             <td>${item.publishedAt || '-'}</td>
-            <td class="actions">
-              <button data-version="${item.version}" data-action="publish">Publish</button>
-              <button class="danger" data-version="${item.version}" data-action="switch">Switch</button>
-            </td>
           `;
           versionsBody.appendChild(tr);
         });
       }
 
-      document.getElementById('registerForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const version = (document.getElementById('registerVersion').value || '').trim();
-        if (!/^\d+$/.test(version)) {
-          setStatus('invalid version');
-          return;
-        }
-        setStatus(`Registering ${version}...`);
-        const body = await postJson('/admin/register', { platform: PLATFORM, version });
-        setStatus(`${body.Code}: ${body.Message}`);
-        await refreshVersions();
-      });
-
       document.getElementById('refreshBtn').addEventListener('click', refreshVersions);
-
-      versionsBody.addEventListener('click', async (e) => {
-        const btn = e.target.closest('button');
-        if (!btn) {
-          return;
-        }
-        const version = btn.getAttribute('data-version');
-        const action = btn.getAttribute('data-action');
-        setStatus(`${action} ${version}...`);
-        const body = await postJson(`/admin/${action}`, { platform: PLATFORM, version });
-        setStatus(`${body.Code}: ${body.Message}`);
-        await refreshVersions();
-      });
 
       refreshVersions().catch((err) => setStatus(err.message));
     </script>

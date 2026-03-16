@@ -7,6 +7,15 @@ const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 const AdmZip = require('adm-zip');
 const FIXED_ADMIN_PASSWORD = 'shaar008';
+const DEFAULT_MANIFEST = {
+  version: '151',
+  appVersion: '1.0.0',
+  packageName: 'com.Kaukei.Game',
+  platform: 'WebGLWxMiniGame',
+  channel: 'WxMiniGame',
+  assetPackageName: 'DefaultPackage',
+  rootPath: 'https://cdn.kaukei.com/hotupdate/StreamingAssets'
+};
 
 function adminAuthHeader(password, username = 'admin') {
   const token = Buffer.from(`${username}:${password}`, 'utf8').toString('base64');
@@ -42,11 +51,13 @@ function buildMultipart(fields, file) {
 async function setupApp(options = {}) {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'pulzz-test-'));
   const appRoot = path.join(tempRoot, 'app');
+  const manifestPath = path.join(appRoot, 'config', 'latest.json');
 
   process.env.PULZZ_ROOT = tempRoot;
   process.env.PULZZ_APP_ROOT = appRoot;
   process.env.PULZZ_CDN_ROOT = path.join(tempRoot, 'cdn');
   process.env.PULZZ_STATE_PATH = path.join(appRoot, 'config', 'state.json');
+  process.env.HOTUPDATE_MANIFEST_PATH = manifestPath;
   process.env.STORAGE_DRIVER = options.storageDriver || 'local';
   process.env.PULZZ_COS_MOCK_ROOT = options.cosMockRoot || '';
   process.env.ADMIN_PASSWORD = options.adminPassword || '';
@@ -67,7 +78,15 @@ async function setupApp(options = {}) {
     delete process.env.CDN_STREAMING_SEGMENT;
   }
 
+  await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+  await fs.writeFile(
+    manifestPath,
+    `${JSON.stringify({ ...DEFAULT_MANIFEST, ...(options.manifest || {}) }, null, 2)}\n`,
+    'utf8'
+  );
+
   delete require.cache[require.resolve('../src/lib/paths')];
+  delete require.cache[require.resolve('../src/lib/manifest')];
   delete require.cache[require.resolve('../src/lib/state')];
   delete require.cache[require.resolve('../src/lib/lock')];
   delete require.cache[require.resolve('../src/lib/response')];
@@ -80,22 +99,32 @@ async function setupApp(options = {}) {
     app,
     tempRoot,
     cleanup: async () => {
+      delete process.env.HOTUPDATE_MANIFEST_PATH;
       await app.close();
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
   };
 }
 
-test('client api returns fixed app version', async () => {
-  const ctx = await setupApp();
+test('client api returns app version payload from latest manifest', async () => {
+  const ctx = await setupApp({
+    manifest: {
+      appVersion: '2.3.4',
+      packageName: 'com.kaukei.custom',
+      platform: 'CustomWebGL',
+      channel: 'Gray'
+    }
+  });
   try {
     const res = await ctx.app.inject({ method: 'POST', url: '/api/GameAppVersion/GetVersion', payload: { AppVersion: '9.9.9' } });
     assert.equal(res.statusCode, 200);
     const json = res.json();
     assert.equal(json.Code, 0);
     const data = JSON.parse(json.Data);
-    assert.equal(data.AppVersion, '1.0.0');
-    assert.equal(data.PackageName, 'com.Kaukei.Game');
+    assert.equal(data.AppVersion, '2.3.4');
+    assert.equal(data.PackageName, 'com.kaukei.custom');
+    assert.equal(data.Platform, 'CustomWebGL');
+    assert.equal(data.Channel, 'Gray');
   } finally {
     await ctx.cleanup();
   }
@@ -120,9 +149,24 @@ test('global info api returns check urls for startup flow', async () => {
   }
 });
 
-test('asset package version api returns version and root path', async () => {
-  const ctx = await setupApp();
+test('asset package version api returns version and root path from latest manifest instead of state', async () => {
+  const ctx = await setupApp({
+    manifest: {
+      version: '151',
+      appVersion: '2.0.0',
+      packageName: 'com.kaukei.custom',
+      platform: 'CustomWebGL',
+      channel: 'Preview',
+      assetPackageName: 'PatchPackage',
+      rootPath: 'https://static.kaukei.com/releases/current'
+    }
+  });
   try {
+    await fs.writeFile(
+      path.join(ctx.tempRoot, 'app', 'config', 'state.json'),
+      JSON.stringify({ currentVersion: '999', versions: [], history: [] }),
+      'utf8'
+    );
     const res = await ctx.app.inject({
       method: 'POST',
       url: '/api/GameAssetPackageVersion/GetVersion',
@@ -132,17 +176,25 @@ test('asset package version api returns version and root path', async () => {
     const json = res.json();
     assert.equal(json.Code, 0);
     const data = JSON.parse(json.Data);
-    assert.equal(data.Version, '0');
-    assert.equal(data.PackageName, 'com.Kaukei.Game');
-    assert.equal(data.RootPath, 'https://cdn.kaukei.com/hotupdate/StreamingAssets');
-    assert.equal(data.AssetPackageName, 'DefaultPackage');
+    assert.equal(data.Version, '151');
+    assert.equal(data.PackageName, 'com.kaukei.custom');
+    assert.equal(data.Platform, 'CustomWebGL');
+    assert.equal(data.Channel, 'Preview');
+    assert.equal(data.RootPath, 'https://static.kaukei.com/releases/current');
+    assert.equal(data.AssetPackageName, 'PatchPackage');
+    assert.equal(data.AppVersion, '2.0.0');
   } finally {
     await ctx.cleanup();
   }
 });
 
-test('asset package version root path can opt-out from StreamingAssets suffix', async () => {
-  const ctx = await setupApp({ cdnAppendStreamingAssets: '0' });
+test('asset package version keeps manifest root path when StreamingAssets env suffix is disabled', async () => {
+  const ctx = await setupApp({
+    cdnAppendStreamingAssets: '0',
+    manifest: {
+      rootPath: 'https://static.kaukei.com/releases/root-from-manifest'
+    }
+  });
   try {
     const res = await ctx.app.inject({
       method: 'POST',
@@ -151,14 +203,19 @@ test('asset package version root path can opt-out from StreamingAssets suffix', 
     });
     assert.equal(res.statusCode, 200);
     const data = JSON.parse(res.json().Data);
-    assert.equal(data.RootPath, 'https://cdn.kaukei.com/hotupdate');
+    assert.equal(data.RootPath, 'https://static.kaukei.com/releases/root-from-manifest');
   } finally {
     await ctx.cleanup();
   }
 });
 
-test('asset package version appends StreamingAssets for custom CDN root path', async () => {
-  const ctx = await setupApp({ cdnRootPath: 'https://cdn.kaukei.com/custom-hotupdate/' });
+test('asset package version keeps manifest root path when CDN_ROOT_PATH is overridden', async () => {
+  const ctx = await setupApp({
+    cdnRootPath: 'https://cdn.kaukei.com/custom-hotupdate/',
+    manifest: {
+      rootPath: 'https://static.kaukei.com/releases/root-from-manifest'
+    }
+  });
   try {
     const res = await ctx.app.inject({
       method: 'POST',
@@ -167,7 +224,7 @@ test('asset package version appends StreamingAssets for custom CDN root path', a
     });
     assert.equal(res.statusCode, 200);
     const data = JSON.parse(res.json().Data);
-    assert.equal(data.RootPath, 'https://cdn.kaukei.com/custom-hotupdate/StreamingAssets');
+    assert.equal(data.RootPath, 'https://static.kaukei.com/releases/root-from-manifest');
   } finally {
     await ctx.cleanup();
   }
@@ -264,6 +321,34 @@ test('admin routes require basic auth', async () => {
     });
     assert.equal(auth.statusCode, 200);
     assert.equal(auth.json().Code, 0);
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test('admin versions reflects manifest current version without register or publish', async () => {
+  const ctx = await setupApp({
+    manifest: {
+      version: '208'
+    }
+  });
+  try {
+    const res = await ctx.app.inject({
+      method: 'GET',
+      url: '/admin/versions?platform=wxmini',
+      headers: { authorization: adminAuthHeader(FIXED_ADMIN_PASSWORD) }
+    });
+
+    assert.equal(res.statusCode, 200);
+    const data = JSON.parse(res.json().Data);
+    assert.equal(data.currentVersion, '208');
+    assert.deepEqual(data.versions, [
+      {
+        version: '208',
+        uploadedAt: '',
+        publishedAt: ''
+      }
+    ]);
   } finally {
     await ctx.cleanup();
   }
